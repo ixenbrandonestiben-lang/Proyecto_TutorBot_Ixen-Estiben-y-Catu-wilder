@@ -1,0 +1,889 @@
+{
+  "name": "TutorBot - Optimizado (Telegram + Google Sheets + Gemini)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "options": {}
+      },
+      "id": "node-telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1600,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message ? $json.message.text : $json.callback_query.data }}",
+        "options": {
+          "systemMessage": "Eres un asistente que valida si un usuario existe en la tabla de registro y dirige al flujo de TutorBot: si el usuario no existe, solicita registro; si existe, devuelve los datos de sesión. Responde con JSON interno para n8n."
+        }
+      },
+      "id": "node-ai-agent1",
+      "name": "AI Agent1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -1200,
+        0
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "ai_languageModel": {
+          "name": "Google Gemini"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "tutorbot_memory_AQ_PLACEHOLDER"
+      },
+      "id": "node-memory",
+      "name": "Simple Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        -1400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+        "sheetName": "tutores",
+        "options": {}
+      },
+      "id": "node-get-tutores",
+      "name": "Get Tutores",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -800,
+        -400
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/* Construir teclado de materias desde la hoja tutores (normaliza callback_data)\n   Entrada: salida de Get Tutores\n   Salida: { chat_id, text, inline_keyboard }\n*/\nconst rows = $input.all().map(i => i.json);\n// extraer materias únicas\nconst materiasSet = new Set();\nrows.forEach(r => {\n  const list = (r.especialidad_materias || '').split(',').map(x=>x.trim()).filter(Boolean);\n  list.forEach(m => materiasSet.add(m));\n});\nconst materias = Array.from(materiasSet);\nfunction slug(s){\n  return s.toString().normalize('NFKD').replace(/[\u0300-\\u036f]/g,'').replace(/[^a-zA-Z0-9 _-]/g,'').trim().replace(/\\s+/g,'_').slice(0,64);\n}\nconst keyboard = materias.map(m => [{ text: m, callback_data: 'MAT_' + slug(m) }]);\n// chat_id will be provided by Telegram Trigger (user chat id) from 'Preparar Datos' in the run; if not, we expect the caller to replace it.\nconst chatId = $('Telegram Trigger').first() ? $('Telegram Trigger').item.json.message.chat.id : null;\nreturn [{ json: { chat_id: chatId, text: 'Selecciona la materia:', reply_markup: { inline_keyboard: keyboard } } }];",
+        "id": "node-build-materias",
+        "name": "Construir Teclado Materias",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -400,
+          -400
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $json.chat_id }}",
+          "text": "={{ $json.text }}",
+          "replyMarkup": "inlineKeyboard",
+          "inlineKeyboard": {
+            "rows": "={{ $json.reply_markup.inline_keyboard.map(r => ({ row: { buttons: r.map(b => ({ text: b.text, additionalFields: { callback_data: b.callback_data } })) } })) }}"
+          },
+          "additionalFields": {}
+        },
+        {
+          "id": "node-send-materias",
+          "name": "Enviar Teclado Materias",
+          "type": "n8n-nodes-base.telegram",
+          "typeVersion": 1.2,
+          "position": [
+            0,
+            -400
+          ],
+          "credentials": {
+            "telegramApi": {
+              "name": "Telegram account"
+            }
+          }
+        },
+        {
+          "parameters": {
+            "jsCode": "/* Validar Fecha YYYY-MM-DD y calcular dia_semana (America/Guatemala) */\nconst j = $input.first().json;\nconst texto = (j.entrada || j.message_text || '').trim();\nconst regex = /^\\\\d{4}-\\\\d{2}-\\\\d{2}$/;\nconst fechaValida = regex.test(texto) && !isNaN(Date.parse(texto + 'T00:00:00'));\nconst moment = require('moment-timezone');\nconst tz = 'America/Guatemala';\nlet dia_semana = '';\nif (fechaValida) {\n  const d = moment.tz(texto, 'YYYY-MM-DD', tz);\n  dia_semana = d.format('dddd');\n}\nreturn [{ json: { fecha: texto, fechaValida, dia_semana, telegram_user: j.telegram_user || (j.message && j.message.from && j.message.from.username) || (j.message && j.message.chat && j.message.chat.id) } }];",
+            "id": "node-validar-fecha",
+            "name": "Validar Fecha",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+              -400,
+              0
+            ]
+          },
+          {
+            "parameters": {
+              "operation": "getAll",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "disponibilidad",
+              "filtersUI": {
+                "values": [
+                  {
+                    "lookupColumn": "dia_semana",
+                    "lookupValue": "={{ $json.dia_semana }}"
+                  },
+                  {
+                    "lookupColumn": "estado",
+                    "lookupValue": "Libre"
+                  }
+                ]
+              },
+              "options": {}
+            },
+            "id": "node-buscar-disponibilidad",
+            "name": "Buscar Tutores Disponibles",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              200,
+              0
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $input.all().length }}",
+                    "operator": {
+                      "type": "number",
+                      "operation": "greaterThan"
+                    },
+                    "rightValue": 0
+                  }
+                ],
+                "combinator": "and"
+              },
+              "options": {}
+            },
+            "id": "node-hay-tutor-disponible",
+            "name": "Hay Tutor Disponible?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+              420,
+              0
+            ]
+          },
+          {
+            "parameters": {
+              "promptType": "define",
+              "text": "Eres el motor de asignacion de TutorBot. Recibes una lista de tutores disponibles en JSON: {{ JSON.stringify($input.all().map(i=>i.json)) }} para la materia guardada en sesion y el dia {{ $json.dia_semana }}. Elige el mejor tutor considerando especialidad (especialidad_materias) y horario. Responde UNICAMENTE en JSON con estas llaves: id_tutor, nombre, hora_inicio (HH:MM), hora_fin (HH:MM), mensaje_amigable. Si no puedes elegir devuelve campos vacíos. Ejemplo de salida: {\"id_tutor\":\"T001\",\"nombre\":\"Ana García\",\"hora_inicio\":\"15:00\",\"hora_fin\":\"16:00\",\"mensaje_amigable\":\"Te recomiendo a Ana, tiene experiencia en Álgebra y está disponible a las 15:00.\"}",
+              "options": {
+                "systemMessage": "Responde únicamente JSON, sin texto extra ni markdown."
+              }
+            },
+            "id": "node-motor-ia-asignacion",
+            "name": "Motor IA Asignacion",
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 1.7,
+            "position": [
+              700,
+              0
+            ],
+            "credentials": {
+              "ai_languageModel": {
+                "name": "Google Gemini"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "jsCode": "/* parsear_sugerencia_ia: recibe raw output y intenta extraer JSON de forma robusta */\nconst raw = $input.first().json.output || $input.first().json.result || '';\nfunction extractJson(text){\n  const start = text.indexOf('{'); if(start===-1) return null;\n  const last = text.lastIndexOf('}'); if(last===-1 || last<=start) return null;\n  return text.slice(start,last+1);\n}\nlet parsed = null; let error = null;\ntry{ parsed = JSON.parse(raw); } catch(e1){\n  const candidate = extractJson(raw);\n  if(candidate){\n    try{ parsed = JSON.parse(candidate); }catch(e2){ error = 'JSON parse failed: '+e2.message; }\n  } else { error = 'No JSON found in model output.'; }\n}\nif(parsed){\n  const req = ['id_tutor','nombre','hora_inicio','hora_fin','mensaje_amigable'];\n  const missing = req.filter(k=>!(k in parsed));\n  if(missing.length){ error = 'Missing fields: '+missing.join(','); parsed = null; }\n}\nreturn [{ json: { valid: !!parsed, parsed, error, raw } }];",
+              "id": "node-parsear-sugerencia",
+              "name": "Parsear Sugerencia IA",
+              "type": "n8n-nodes-base.code",
+              "typeVersion": 2,
+              "position": [
+                1000,
+                0
+              ]
+            }
+          },
+          {
+            "parameters": {
+              "operation": "update",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "sessions",
+              "columns": {
+                "mappingMode": "defineBelow",
+                "matchingColumns": [
+                  "telegram_user"
+                ],
+                "value": {
+                  "telegram_user": "={{ $('Validar Fecha').first().json.telegram_user || $json.telegram_user }}",
+                  "pantalla_actual": "CONFIRMACION",
+                  "datos_parciales": "={{ JSON.stringify($('Parsear Sugerencia IA').first().json.parsed || {}) }}"
+                }
+              },
+              "options": {}
+            },
+            "id": "node-guardar-sugerencia",
+            "name": "Guardar Sugerencia",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              1300,
+              0
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+              "text": "={{ $('Parsear Sugerencia IA').first().json.parsed ? $('Parsear Sugerencia IA').first().json.parsed.mensaje_amigable : 'Lo siento, no pude sugerir un tutor ahora.' }}",
+              "replyMarkup": "inlineKeyboard",
+              "inlineKeyboard": {
+                "rows": [
+                  {
+                    "row": {
+                      "buttons": [
+                        {
+                          "text": "Confirmar",
+                          "additionalFields": {
+                            "callback_data": "UCONF_confirm"
+                          }
+                        },
+                        {
+                          "text": "Cancelar",
+                          "additionalFields": {
+                            "callback_data": "UCONF_cancel"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "additionalFields": {}
+            },
+            "id": "node-enviar-sugerencia-estudiante",
+            "name": "Enviar Sugerencia Estudiante",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+              1600,
+              0
+            ],
+            "credentials": {
+              "telegramApi": {
+                "name": "Telegram account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "mode": "expression",
+              "output": "=1"
+            },
+            "id": "node-procesar-respuesta",
+            "name": "Procesar Respuesta (switch)",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3.2,
+            "position": [
+              1800,
+              0
+            ]
+          },
+          {
+            "parameters": {
+              "operation": "update",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "disponibilidad",
+              "columns": {
+                "mappingMode": "defineBelow",
+                "matchingColumns": [
+                  "row_number"
+                ],
+                "value": {
+                  "row_number": "={{ $json.row_number_disp }}",
+                  "estado": "Pendiente",
+                  "pending_by": "={{ $json.telegram_user }}",
+                  "pending_at": "={{ $now.toISO() }}"
+                }
+              },
+              "options": {}
+            },
+            "id": "node-lock-disponibilidad",
+            "name": "Lock Disponibilidad (marcar Pendiente)",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              2000,
+              160
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "jsCode": "/* double_check_before_confirm: re-lee disponibilidad y confirma estado 'Pendiente' por mismo usuario */\nconst rowNumber = $input.first().json.row_number_disp;\nif(!rowNumber) throw new Error('row_number_disp missing');\n// En n8n: este nodo debe recibir la salida del GoogleSheets lookup que obtiene la fila exacta.\n// Aquí asumimos que el nodo anterior 'Buscar por row_number' devolvió la fila en $items()\nconst dispo = $input.first().json.disponibilidad || $input.first().json; // adaptarse al output real\nif(!dispo) return [{ json: { ok:false, reason:'Disponibilidad no encontrada' } }];\nif(dispo.estado !== 'Pendiente') return [{ json: { ok:false, reason:'Slot no pendiente' } }];\nif(dispo.pending_by != ($input.first().json.telegram_user)) return [{ json: { ok:false, reason:'Slot reservado por otro usuario' } }];\n// ok\nreturn [{ json: { ok:true, dispo } }];",
+              "id": "node-double-check",
+              "name": "Double Check Before Confirm (Code)",
+              "type": "n8n-nodes-base.code",
+              "typeVersion": 2,
+              "position": [
+                2200,
+                160
+              ]
+            }
+          },
+          {
+            "parameters": {
+              "operation": "append",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "tutorias",
+              "columns": {
+                "mappingMode": "defineBelow",
+                "value": {
+                  "id_tutoria": "={{ $now.format('X') + '_' + Math.floor(Math.random()*1000) }}",
+                  "id_estudiante": "={{ $json.telegram_user }}",
+                  "id_tutor": "={{ $('Parsear Sugerencia IA').first().json.parsed.id_tutor }}",
+                  "materia": "={{ $('Validar Fecha').first().json.materia || '' }}",
+                  "fecha": "={{ $('Validar Fecha').first().json.fecha }}",
+                  "hora": "={{ $('Parsear Sugerencia IA').first().json.parsed.hora_inicio }}",
+                  "estado": "Asignada",
+                  "row_number_disp": "={{ $json.row_number_disp }}",
+                  "created_at": "={{ $now.toISO() }}"
+                },
+                "matchingColumns": []
+              },
+              "options": {}
+            },
+            "id": "node-registrar-tutoria",
+            "name": "Registrar Tutoria",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              2400,
+              160
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "operation": "update",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "disponibilidad",
+              "columns": {
+                "mappingMode": "defineBelow",
+                "matchingColumns": [
+                  "row_number"
+                ],
+                "value": {
+                  "row_number": "={{ $json.row_number_disp }}",
+                  "estado": "Asignada",
+                  "assigned_to": "={{ $('Parsear Sugerencia IA').first().json.parsed.id_tutor }}",
+                  "assigned_at": "={{ $now.toISO() }}"
+                }
+              },
+              "options": {}
+            },
+            "id": "node-ocupar-disponibilidad",
+            "name": "Ocupar Disponibilidad",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              2600,
+              160
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "jsCode": "/* Enviar notificación al tutor con botones Confirmar/Rechazar */\nconst parsed = $('Parsear Sugerencia IA').first().json.parsed;\n// buscar telegram_user del tutor en hoja tutores: idealmente usar nodo 'Get Tutores' con filtro id_tutor\nconst tutorChat = null; // placeholder: este valor debe ser obtenido con un GoogleSheets lookup por id_tutor\nconst reserva_id = $now.format('X') + '_' + Math.floor(Math.random()*1000);\nconst text = `Nueva tutoria asignada: Materia: ${$('Validar Fecha').first().json.materia || ''}\\nFecha: ${$('Validar Fecha').first().json.fecha} ${parsed.hora_inicio}\\nEstudiante: ${$json.id_estudiante || $json.telegram_user || ''}`;\nconst keyboard = [\n  [{ text: 'Confirmar', callback_data: `TCONF_${reserva_id}_yes` }],\n  [{ text: 'Rechazar', callback_data: `TCONF_${reserva_id}_no` }]\n];\n// Emitir: este nodo debe conectar a un Telegram node para enviar a tutorChat. Si tutorChat es null, el flujo enviará al admin.\nreturn [{ json: { chat_id: tutorChat, text, reply_markup: { inline_keyboard: keyboard }, reserva_id } }];",
+              "id": "node-notificar-tutor-code",
+              "name": "Generar Notificacion Tutor (Code)",
+              "type": "n8n-nodes-base.code",
+              "typeVersion": 2,
+              "position": [
+                2800,
+                160
+              ]
+            }
+          },
+          {
+            "parameters": {
+              "amount": 1,
+              "unit": "minutes"
+            },
+            "id": "node-wait-tutor",
+            "name": "Wait - Espera confirmacion tutor",
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1.1,
+            "position": [
+              3200,
+              160
+            ]
+          },
+          {
+            "parameters": {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.callback_query && $json.callback_query.data && $json.callback_query.data.startsWith('TCONF_') }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "isTrue"
+                    },
+                    "rightValue": true
+                  }
+                ],
+                "combinator": "and"
+              },
+              "options": {}
+            },
+            "id": "node-if-tutor-callback",
+            "name": "If Tutor Callback",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+              3000,
+              360
+            ]
+          },
+          {
+            "parameters": {
+              "operation": "update",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "tutorias",
+              "columns": {
+                "mappingMode": "defineBelow",
+                "matchingColumns": [
+                  "id_tutoria"
+                ],
+                "value": {
+                  "id_tutoria": "={{ $json.reserva_id }}",
+                  "estado": "Confirmada",
+                  "confirmed_at": "={{ $now.toISO() }}"
+                }
+              },
+              "options": {}
+            },
+            "id": "node-update-tutoria-confirmada",
+            "name": "Update Tutoria Confirmada",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              3400,
+              360
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "chatId": "={{ $json.callback_query.from.id }}",
+              "text": "Gracias. Has confirmado la tutoría.",
+              "additionalFields": {}
+            },
+            "id": "node-telegram-confirm-tutor",
+            "name": "Confirmacion Tutor - Telegram",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+              3600,
+              360
+            ],
+            "credentials": {
+              "telegramApi": {
+                "name": "Telegram account"
+              }
+            }
+          },
+          {
+            "parameters": {},
+            "id": "node-error-trigger",
+            "name": "Error Trigger",
+            "type": "n8n-nodes-base.errorTrigger",
+            "typeVersion": 1,
+            "position": [
+              0,
+              600
+            ]
+          },
+          {
+            "parameters": {
+              "chatId": "REEMPLAZAR_CHAT_ID_ADMIN",
+              "text": "Error en TutorBot\nWorkflow: {{$json.workflow.name}}\nNodo: {{$json.execution.lastNodeExecuted}}\nError: {{$json.execution.error.message}}",
+              "additionalFields": {}
+            },
+            "id": "node-notificar-admin",
+            "name": "Notificar Error Admin",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+              240,
+              600
+            ],
+            "credentials": {
+              "telegramApi": {
+                "name": "Telegram account"
+              }
+            }
+          },
+          {
+            "parameters": {
+              "operation": "append",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "error_log",
+              "columns": {
+                "mappingMode": "defineBelow",
+                "value": {
+                  "fecha": "={{ $now.toISO() }}",
+                  "workflow": "={{ $json.workflow.name }}",
+                  "nodo": "={{ $json.execution.lastNodeExecuted }}",
+                  "mensaje": "={{ $json.execution.error.message }}"
+                }
+              },
+              "options": {}
+            },
+            "id": "node-log-error",
+            "name": "Log Error",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              480,
+              600
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          },
+          {
+            "parameters": {},
+            "id": "node-merge-final",
+            "name": "Merge Final",
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3.1,
+            "position": [
+              3800,
+              200
+            ]
+          },
+          {
+            "parameters": {
+              "operation": "append",
+              "documentId": "1RTZiuOpuPfLvGUFarwTBgEM1qIZuySJh6iHOSdvnE9E",
+              "sheetName": "activity_log",
+              "columns": {
+                "mappingMode": "defineBelow",
+                "value": {
+                  "ts": "={{ $now.toISO() }}",
+                  "event": "={{ $json.event || $json.workflow.name }}",
+                  "detail": "={{ $json.detail || ($json.parsed ? JSON.stringify($json.parsed) : '') }}"
+                }
+              },
+              "options": {}
+            },
+            "id": "node-registrar-log-actividad",
+            "name": "Registrar Log Actividad",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+              4000,
+              200
+            ],
+            "credentials": {
+              "googleSheetsOAuth2Api": {
+                "name": "Google Sheets account"
+              }
+            }
+          }
+        ],
+        "connections": {
+          "node-telegram-trigger": {
+            "main": [
+              [
+                {
+                  "node": "node-ai-agent1",
+                  "type": "main",
+                  "index": 0
+                },
+                {
+                  "node": "node-validar-fecha",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-ai-agent1": {
+            "main": [
+              [
+                {
+                  "node": "node-get-tutores",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-get-tutores": {
+            "main": [
+              [
+                {
+                  "node": "node-build-materias",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-build-materias": {
+            "main": [
+              [
+                {
+                  "node": "node-send-materias",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-validar-fecha": {
+            "main": [
+              [
+                {
+                  "node": "node-buscar-disponibilidad",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-buscar-disponibilidad": {
+            "main": [
+              [
+                {
+                  "node": "node-hay-tutor-disponible",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-hay-tutor-disponible": {
+            "main": [
+              [
+                {
+                  "node": "node-motor-ia-asignacion",
+                  "type": "main",
+                  "index": 0
+                }
+              ],
+              [
+                {
+                  "node": "node-send-materias",
+                  "type": "main",
+                  "index": 1
+                }
+              ]
+            ]
+          },
+          "node-motor-ia-asignacion": {
+            "main": [
+              [
+                {
+                  "node": "node-parsear-sugerencia",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-parsear-sugerencia": {
+            "main": [
+              [
+                {
+                  "node": "node-guardar-sugerencia",
+                  "type": "main",
+                  "index": 0
+                },
+                {
+                  "node": "node-enviar-sugerencia-estudiante",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-enviar-sugerencia-estudiante": {
+            "main": [
+              [
+                {
+                  "node": "node-procesar-respuesta",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-procesar-respuesta": {
+            "main": [
+              [
+                {
+                  "node": "node-lock-disponibilidad",
+                  "type": "main",
+                  "index": 0
+                }
+              ],
+              [
+                {
+                  "node": "node-double-check",
+                  "type": "main",
+                  "index": 1
+                }
+              ]
+            ]
+          },
+          "node-lock-disponibilidad": {
+            "main": [
+              [
+                {
+                  "node": "node-registrar-tutoria",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-registrar-tutoria": {
+            "main": [
+              [
+                {
+                  "node": "node-ocupar-disponibilidad",
+                  "type": "main",
+                  "index": 0
+                },
+                {
+                  "node": "node-notificar-tutor-code",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-notificar-tutor-code": {
+            "main": [
+              [
+                {
+                  "node": "node-wait-tutor",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-wait-tutor": {
+            "main": [
+              [
+                {
+                  "node": "node-merge-final",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-merge-final": {
+            "main": [
+              [
+                {
+                  "node": "node-registrar-log-actividad",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-error-trigger": {
+            "main": [
+              [
+                {
+                  "node": "node-notificar-admin",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-notificar-admin": {
+            "main": [
+              [
+                {
+                  "node": "node-log-error",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "node-if-tutor-callback": {
+            "main": [
+              [
+                {
+                  "node": "node-update-tutoria-confirmada",
+                  "type": "main",
+                  "index": 0
+                },
+                {
+                  "node": "node-telegram-confirm-tutor",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          }
+        },
+        "active": false,
+        "settings": {
+          "executionOrder": "v1",
+          "binaryMode": "separate",
+          "timezone": "America/Guatemala"
+        },
+        "versionId": "optimized-tutorbot-v1"
+      }
