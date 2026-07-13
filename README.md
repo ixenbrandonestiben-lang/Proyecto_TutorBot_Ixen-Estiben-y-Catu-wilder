@@ -60,9 +60,10 @@ Si el usuario existe en la base de datos:
 - El flujo continúa normalmente.
 - Se recupera la información del usuario.
 - Se inicia su sesión automáticamente.
-- Se muestra el menú principal.
 
 ---
+> **Imagen de usuario registrado:**
+     ![Camptura de pantalla de registro de nuevo usuario](/img/usuariosNuevos.png)
 
 ### Usuario no registrado
 
@@ -77,18 +78,11 @@ Si el usuario no existe en la base de datos:
 
 # Paso 2. Menú principal
 
-Después de validar al usuario, el bot envía un mensaje preguntando qué acción desea realizar.
-
-Para facilitar la interacción, se muestran cuatro botones que representan las opciones disponibles dentro del sistema.
-
-Estas opciones permiten al usuario navegar por las diferentes funciones del TutorBot.
-
-
-![Menú principal](/img/menu.jpg)
+Después de validar al usuario automaticamnete rediirge al usuario  la consulta de datos y materias para registrarse y asignarse tuturias.
 
 ---
 
-# Evidencias
+# --------------------------------- Evidencias ------------------------
 
 ## Evidencia 1 - Flujo de trabajo
 
@@ -103,17 +97,16 @@ Estas opciones permiten al usuario navegar por las diferentes funciones del Tuto
 > - Google Sheets
 > 
 >
-> Objetivo: Automatizar completamente el proceso de asignación de tutorías utilizando Telegram como interfaz conversacional y n8n como motor de automatización, reduciendo al mínimo el uso del teclado mediante botones interactivos.
+> Objetivo: Automatizar completamente el proceso de asignación de tutorías utilizando Telegram como interfaz conversacional y n8n como motor de automatización, reduciendo al mínimo el uso del teclado.
 
 ---
-
 
 
 # Introducción
 
 TutorBot busca automatizar completamente la gestión de asesorías académicas.
 
-Todo el flujo ocurre dentro de Telegram utilizando botones Inline Keyboard para minimizar el uso del teclado.
+Todo el flujo ocurre dentro de Telegram para minimizar el uso del teclado.
 
 El usuario únicamente deberá escribir información cuando sea estrictamente necesario (por ejemplo una fecha), aunque incluso este paso puede eliminarse utilizando botones dinámicos.
 
@@ -146,7 +139,6 @@ G --> I[Consultar Tutorías]
 
 G --> J[Cancelar Tutoría]
 
-G --> K[Mi Perfil]
 ```
 
 ---
@@ -293,8 +285,6 @@ G --> H[Solicitar]
 G --> I[Consultar]
 
 G --> J[Cancelar]
-
-G --> K[Perfil]
 ```
 
 ---
@@ -316,11 +306,8 @@ El usuario inicia el bot.
 El bot responde.
 
 ```
-Bienvenido a TutorBot
+Bienvenido a TutorBot.
 
-Seleccione una opción
-
-[ Registrarme ]
 ```
 
 ---
@@ -777,42 +764,17 @@ Correo
 
 ---
 
-# Gestión de Sesiones
-
-Cada acción modifica la hoja
-
-```
-SESSIONS
-```
-
-Ejemplo.
-
-| Pantalla | Paso |
-|------------|---------|
-| MENU | 0 |
-| MATERIA | 1 |
-| FECHA | 2 |
-| BUSCAR | 3 |
-| CONFIRMAR | 4 |
-
----
 
 # Nodos Utilizados
 
 - Telegram Trigger
 - Telegram Send Message
-- Telegram Answer Callback Query
 - Google Sheets
 - Switch
-- IF
-- Set
 - Edit Fields
-- Merge
 - Date & Time
 - Code
-- Loop Over Items
 - Filter
-- Wait
 
 ---
 
@@ -866,10 +828,13 @@ S --> F
 
 ---
 
+# flujo final:
+
+> ![Flujo final](/img/flujoFinal.png)
+
 # Buenas Prácticas
 
-- Utilizar siempre Callback Query.
-- Evitar mensajes de texto cuando exista una alternativa con botones.
+- Evitar mensajes de texto cuando exista una alternativa con opciones.
 - Guardar el estado del usuario después de cada interacción.
 - Validar siempre disponibilidad antes de asignar un tutor.
 - Utilizar IDs únicos para cada registro.
@@ -894,7 +859,7 @@ S --> F
 
 # Conclusión
 
-El flujo propuesto permite construir un sistema completamente automatizado en n8n donde el estudiante interactúa casi exclusivamente mediante botones de Telegram. Esto reduce errores, mejora la experiencia del usuario y simplifica el mantenimiento del flujo al centralizar la lógica en n8n y Google Sheets.
+El flujo propuesto permite construir un sistema completamente automatizado en n8n donde el estudiante interactúa casi exclusivamente mediante opciones **1, 2, 3** de Telegram. Esto reduce errores, mejora la experiencia del usuario y simplifica el mantenimiento del flujo al centralizar la lógica en n8n y Google Sheets.
 
 ---
 
@@ -906,7 +871,6 @@ En esta primera etapa se logró implementar la estructura principal del sistema,
 - La conexión con Google Sheets como base de datos.
 - La validación de usuarios registrados.
 - El registro de nuevos usuarios.
-- La visualización del menú principal mediante botones interactivos.
 
 Sin embargo, el flujo aún no se encuentra completamente automatizado, por lo que algunas pruebas deben ejecutarse manualmente utilizando los valores **1**, **2** y **3**.
 
